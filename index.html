@@ -89,7 +89,7 @@ async function loadMap() {
   }
 
   if (Object.keys(changeById).length === 0) {
-    var changeData = await d3.csv("./data/yearlyrateofchange.csv");
+    var changeData = await d3.csv("./data/yearlyRateOfChange.csv");
     var ratesOfChange = changeData.map(function (d) {
       return +d["Avg_Yearly_Rate_of_Change"];
     });
