@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>US Map with D3 and TopoJSON</title>
+    <link rel="stylesheet" href="./styles.css">
+    <script src="./library/d3.v6.min.js"></script>
+    <script src="./library/topojson.v3.min.js"></script>
+</head>
+<body>
+    <div id="yearSelector">
+        <label for="year">Year:</label>
+        <input type="number" id="year" name="year" min="2015" max="2023" value="2023">
+        <label for="toggleChange">
+            <input type="checkbox" id="toggleChange" name="toggleChange">
+            Show Rate of Change
+        </label>
+    </div>
+
+    <div id="title">Average Price of Rent for 2023</div>
+    <div id="tooltip" class="tooltip" style="opacity: 0;"></div>
+    <svg id="map"></svg>
+
+<script>
+var valuesById = {};
+var counties = {};
+var states = {};
+var changeById = {};
+
+async function loadMap() {
+  var width = window.innerWidth;
+  var height = window.innerHeight;
+  var mapScale = 0.8;
+  var year = document.getElementById("year").value;
+  var isChangeChecked = document.getElementById("toggleChange").checked;
+  var colorScale = d3
+    .scaleQuantize()
+    .range([
+      "#f7fbff",
+      "#deebf7",
+      "#c6dbef",
+      "#9ecae1",
+      "#6baed6",
+      "#4292c6",
+      "#2171b5",
+      "#08519c",
+      "#08306b",
+    ]);
+
+  var projection = d3
+    .geoAlbersUsa()
+    .scale(width * mapScale)
+    .translate([width / 2, height / 2.5]);
+
+  var path = d3.geoPath().projection(projection);
+  var svg = d3.select("#map").attr("width", width).attr("height", height);
+  var tooltip = d3.select("#tooltip");
+  var g = svg.append("g");
+
+  var zoom = d3
+    .zoom()
+    .scaleExtent([1, 20])
+    .translateExtent([
+      [-width, -height],
+      [2 * width, 2 * height],
+    ])
+    .on("zoom", function (event) {
+      g.attr("transform", event.transform);
+    });
+
+  svg.call(zoom);
+
+  async function loadData() {
+    year = document.getElementById("year").value; // Get the latest year value
+    var data = await d3.csv("./data/zillowavg-yearlyCounty.csv");
+    data.forEach(function (d) {
+      var currentValue = +d[`${year}_Avg_Rental_Price`];
+      var fips = d.fips.toString().padStart(5, "0"); // Padding FIPS code here
+      valuesById[fips] = currentValue;
+      counties[fips] = d.RegionName;
+      states[fips] = d.StateName;
+      if (d.fips === "29189") {
+        console.log(d);
+      }
+    });
+  }
+
+  if (Object.keys(valuesById).length === 0) {
+    await loadData();
+  }
+
+  if (Object.keys(changeById).length === 0) {
+    var changeData = await d3.csv("./data/yearlyrateofchange.csv");
+    var ratesOfChange = changeData.map(function (d) {
+      return +d["Avg_Yearly_Rate_of_Change"];
+    });
+    colorScale.domain([0.03, 0.08]); // Set the domain of the color scale
+    changeData.forEach(function (d) {
+      var rateOfChange = +d["Avg_Yearly_Rate_of_Change"];
+      var fips = d.fips.toString().padStart(5, "0"); // Padding FIPS code here
+      changeById[fips] = rateOfChange;
+    });
+  }
+
+  var topology = await d3.json("counties-10m.json");
+
+  g.selectAll(".county")
+    .data(topojson.feature(topology, topology.objects.counties).features)
+    .enter()
+    .append("path")
+    .attr("class", "county")
+    .attr("d", path)
+    .style("fill", function (d) {
+      var fips = d.id.toString().padStart(5, "0"); // Pad FIPS code with leading zeros
+      if (isChangeChecked) {
+        // Show the rate of change
+        var change = changeById[fips]
+          ? Math.pow(changeById[fips] - 0.02, 2)
+          : 0;
+        return d3.interpolateReds(change / 0.012);
+      } else {
+        // Show the average rental price
+        return valuesById[fips]
+          ? d3.interpolateBlues(valuesById[fips] / 5000)
+          : "#ccc";
+      }
+    })
+    .on("mouseover", function (event, d) {
+      var fips = d.id.toString().padStart(5, "0"); // Pad FIPS code with leading zeros
+      var tooltipText =
+        "State: " +
+        states[fips] +
+        "<br/>County: " +
+        counties[fips] +
+        "<br/>FIPS: " +
+        fips;
+      if (isChangeChecked) {
+        tooltipText +=
+          "<br/>Rate of Change: " +
+          (changeById[fips] ? changeById[fips].toFixed(2) + "%" : "N/A");
+      } else {
+        tooltipText += "<br/>Rental Avg: " + (valuesById[fips] || "N/A");
+      }
+      tooltip.transition().duration(200).style("opacity", 0.9);
+      tooltip
+        .html(tooltipText)
+        .style("left", event.pageX + 5 + "px")
+        .style("top", event.pageY - 28 + "px");
+    })
+    .on("mouseout", function (event, d) {
+      tooltip.transition().duration(500).style("opacity", 0);
+    });
+
+  function updateMap() {
+    year = document.getElementById("year").value; // Get the latest year value
+    document.getElementById("title").innerText = isChangeChecked
+      ? "Average Yearly Rate of Change in Rental Price"
+      : "Average Price of Rent for " + year;
+
+    g.selectAll(".county").style("fill", function (d) {
+      var fips = d.id.toString().padStart(5, "0"); // Pad FIPS code with leading zeros
+      if (isChangeChecked) {
+        // Show the rate of change
+        if (changeById[fips] === undefined || changeById[fips] === 0) {
+          return "rgb(237,237,237)";
+        }
+        var change = changeById[fips]
+          ? Math.pow(changeById[fips] - 0.02, 2)
+          : 0;
+        return d3.interpolateReds(change / 0.012);
+      } else {
+        // Show the average rental price
+        return valuesById[fips]
+          ? d3.interpolateBlues(valuesById[fips] / 5000)
+          : "#ccc";
+      }
+    });
+  }
+
+  document.getElementById("year").addEventListener("change", function () {
+    loadData().then(updateMap);
+  });
+
+  document
+    .getElementById("toggleChange")
+    .addEventListener("change", function () {
+      isChangeChecked = this.checked;
+      updateMap();
+      document.getElementById("year").disabled = isChangeChecked; // Disable the year input when showing rate of change
+    });
+}
+
+window.onload = function () {
+  loadMap();
+};
+</script>
+</body>
+</html>
