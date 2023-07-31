@@ -78,9 +78,6 @@ async function loadMap() {
       valuesById[fips] = currentValue;
       counties[fips] = d.RegionName;
       states[fips] = d.StateName;
-      if (d.fips === "29189") {
-        console.log(d);
-      }
     });
   }
 
